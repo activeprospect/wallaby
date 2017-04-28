@@ -1,6 +1,6 @@
 defmodule Wallaby.Experimental.Selenium.WebdriverClient do
   @moduledoc false
-  alias Wallaby.{Element, Query, Session}
+  alias Wallaby.{Driver, Element, Query, Session}
 
   @type http_method :: :post | :get | :delete
   @type url :: String.t
