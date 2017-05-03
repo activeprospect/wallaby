@@ -25,6 +25,16 @@ defmodule Wallaby.Experimental.SeleniumTest do
 
       assert_received {:fn_called, ["http://localhost:4444/wd/hub/", %{javascriptEnabled: true}]}
     end
+
+    # This is only here until we build a real error api for the user
+    test "returns an error response as is" do
+      create_session_fn = fn _, _ ->
+        {:error, %HTTPoison.Error{reason: :nxdomain}}
+      end
+
+      assert {:error, %HTTPoison.Error{reason: :nxdomain}} =
+        Selenium.start_session(create_session_fn: create_session_fn)
+    end
   end
 
   describe "end_session/1" do

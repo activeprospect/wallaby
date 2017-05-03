@@ -20,18 +20,17 @@ defmodule Wallaby.Experimental.Selenium do
 
     capabilities = Map.merge(default_capabilities(), capabilities)
 
-    case create_session_fn.(base_url, capabilities) do
-      {:ok, response} ->
-        id = response["sessionId"]
+    with {:ok, response} <- create_session_fn.(base_url, capabilities) do
+      id = response["sessionId"]
 
-        session = %Wallaby.Session{
-          session_url: base_url <> "session/#{id}",
-          url: base_url <> "session/#{id}",
-          id: id,
-          driver: __MODULE__
-        }
+      session = %Wallaby.Session{
+        session_url: base_url <> "session/#{id}",
+        url: base_url <> "session/#{id}",
+        id: id,
+        driver: __MODULE__
+      }
 
-        {:ok, session}
+      {:ok, session}
     end
   end
 
