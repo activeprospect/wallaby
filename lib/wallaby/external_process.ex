@@ -7,6 +7,9 @@ defmodule Wallaby.ExternalProcess do
     port: port
   }
 
+  @external_resource "priv/run_phantom.sh"
+  @run_cmd_script_contents File.read! "priv/run_phantom.sh"
+
   def start_link(path_to_executable, args \\ []) do
     GenServer.start_link(__MODULE__, [path_to_executable, args])
   end
@@ -22,6 +25,8 @@ defmodule Wallaby.ExternalProcess do
   @impl GenServer
   def init([path_to_executable, args]) do
     try do
+      # tmp_dir = write_wrapper_script()
+
       Port.open({:spawn_executable, path_to_executable},
         [:binary, :stream, :use_stdio, :exit_status, args: args])
     rescue
@@ -45,4 +50,24 @@ defmodule Wallaby.ExternalProcess do
     {:stop, :crashed, state}
   end
   def handle_info(msg, state), do: super(msg, state)
+
+  @impl GenServer
+  def terminate(reason, %__MODULE__{} = state) do
+    IO.puts "terminating"
+    IO.inspect reason
+  end
+
+  defp write_wrapper_script() do
+    tmp_dir = Path.join([System.tmp_dir!, "hello"])
+    IO.inspect tmp_dir
+
+    File.mkdir(tmp_dir)
+
+    wrappper_file_path = Path.join([tmp_dir, "run_cmd.sh"]) |> IO.inspect
+
+    :ok = File.write(wrappper_file_path, @run_cmd_script_contents)
+    :ok = File.chmod(wrappper_file_path, 0o755)
+
+
+  end
 end

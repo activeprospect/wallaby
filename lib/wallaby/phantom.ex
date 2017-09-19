@@ -63,10 +63,11 @@ defmodule Wallaby.Phantom do
   end
 
   def init(:ok) do
-    children = [
-      :poolboy.child_spec(@pool_name, poolboy_config(), []),
-      worker(Wallaby.Phantom.LogStore, []),
-    ]
+    # children = [
+    #   :poolboy.child_spec(@pool_name, poolboy_config(), []),
+    #   worker(Wallaby.Phantom.LogStore, []),
+    # ]
+    children = []
 
     supervise(children, strategy: :one_for_one)
   end
