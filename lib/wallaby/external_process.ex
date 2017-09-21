@@ -2,20 +2,33 @@ defmodule Wallaby.ExternalProcess do
   @moduledoc false
   use GenServer
 
-  defstruct port: nil
+  alias __MODULE__.State
+
+  defstruct [:port]
   @type t :: %__MODULE__{
-    port: port
+    port: nil | port
   }
 
   @external_resource "priv/run_phantom.sh"
   @run_cmd_script_contents File.read! "priv/run_phantom.sh"
 
-  def start_link(path_to_executable, args \\ []) do
-    GenServer.start_link(__MODULE__, [path_to_executable, args])
+  @type start_link_opt :: {:wrapper_script_contents, String.t}
+
+  @spec start_link(String.t, [String.t], [start_link_opt]) :: GenServer.on_start
+  def start_link(path_to_executable, args \\ [], opts \\ []) do
+    wrapper_script_contents = Keyword.get(opts, :wrapper_script_contents,
+     @run_cmd_script_contents)
+
+    GenServer.start_link(__MODULE__, [path_to_executable, args,
+      wrapper_script_contents])
   end
 
   def get_os_pid(server) do
     GenServer.call(server, :get_os_pid)
+  end
+
+  def get_wrapper_script_path(server) do
+    GenServer.call(server, :get_wrapper_script_path)
   end
 
   def stop(server) do
@@ -23,26 +36,34 @@ defmodule Wallaby.ExternalProcess do
   end
 
   @impl GenServer
-  def init([path_to_executable, args]) do
-    try do
-      # tmp_dir = write_wrapper_script()
+  def init([path_to_executable, args, wrapper_script_contents]) do
+    Process.flag(:trap_exit, true)
+    state = State.new
 
-      Port.open({:spawn_executable, path_to_executable},
-        [:binary, :stream, :use_stdio, :exit_status, args: args])
+    try do
+      write_wrapper_script(state, wrapper_script_contents)
+      wrapper_path = State.wrapper_script_path(state)
+
+      Port.open({:spawn_executable, wrapper_path},
+        [:binary, :stream, :use_stdio, :exit_status,
+         args: [path_to_executable | args]])
     rescue
       e in [ErlangError] ->
         {:stop, e.original}
     else
       port ->
-        {:ok, %__MODULE__{port: port}}
+        {:ok, %{state | port: port}}
     end
   end
 
   @impl GenServer
-  def handle_call(:get_os_pid, _from, %__MODULE__{port: port} = state) do
+  def handle_call(:get_os_pid, _from, %State{port: port} = state) do
     os_pid =  port |> Port.info |> Keyword.fetch!(:os_pid)
-
     {:reply, os_pid, state}
+  end
+  def handle_call(:get_wrapper_script_path, _from, state) do
+    path = State.wrapper_script_path(state)
+    {:reply, path, state}
   end
 
   @impl GenServer
@@ -52,22 +73,16 @@ defmodule Wallaby.ExternalProcess do
   def handle_info(msg, state), do: super(msg, state)
 
   @impl GenServer
-  def terminate(reason, %__MODULE__{} = state) do
-    IO.puts "terminating"
-    IO.inspect reason
+  def terminate(_reason, %State{port: port, tmp_dir: tmp_dir}) do
+    # Port.close(port)
+    File.rm_rf!(tmp_dir)
   end
 
-  defp write_wrapper_script() do
-    tmp_dir = Path.join([System.tmp_dir!, "hello"])
-    IO.inspect tmp_dir
+  defp write_wrapper_script(state, script_contents) do
+    File.mkdir(state.tmp_dir)
+    wrapper_script_path = State.wrapper_script_path(state)
 
-    File.mkdir(tmp_dir)
-
-    wrappper_file_path = Path.join([tmp_dir, "run_cmd.sh"]) |> IO.inspect
-
-    :ok = File.write(wrappper_file_path, @run_cmd_script_contents)
-    :ok = File.chmod(wrappper_file_path, 0o755)
-
-
+    :ok = File.write(wrapper_script_path, script_contents)
+    :ok = File.chmod(wrapper_script_path, 0o755)
   end
 end

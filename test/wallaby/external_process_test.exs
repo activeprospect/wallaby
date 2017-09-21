@@ -8,8 +8,10 @@ defmodule Wallaby.ExternalProcessTest do
 
     {:ok, pid} = ExternalProcess.start_link(cat_path)
     os_pid = ExternalProcess.get_os_pid(pid)
+    wrapper_script = ExternalProcess.get_wrapper_script_path(pid)
 
     assert_os_process_is_running os_pid
+    assert File.exists?(wrapper_script)
   end
 
   test "when the process is stopped, shuts down the os process" do
@@ -18,11 +20,13 @@ defmodule Wallaby.ExternalProcessTest do
     {:ok, pid} = ExternalProcess.start_link(cat_path)
     ref = Process.monitor(pid)
     os_pid = ExternalProcess.get_os_pid(pid)
+    wrapper_script = ExternalProcess.get_wrapper_script_path(pid) |> IO.inspect
 
     :ok = ExternalProcess.stop(pid)
 
     refute_os_process_is_running os_pid
     assert_receive {:DOWN, ^ref, :process, _, :normal}
+    refute File.exists?(wrapper_script)
   end
 
   test "when the process is killed, the os process is stopped" do
@@ -32,11 +36,13 @@ defmodule Wallaby.ExternalProcessTest do
     {:ok, pid} = ExternalProcess.start_link(cat_path)
     ref = Process.monitor(pid)
     os_pid = ExternalProcess.get_os_pid(pid)
+    wrapper_script = ExternalProcess.get_wrapper_script_path(pid)
 
     Process.exit(pid, :kill)
 
     refute_os_process_is_running os_pid
     assert_receive {:DOWN, ^ref, :process, _, :killed}
+    refute File.exists?(wrapper_script)
   end
 
   @tag :capture_log
@@ -48,9 +54,11 @@ defmodule Wallaby.ExternalProcessTest do
     ref = Process.monitor(pid)
 
     os_pid = ExternalProcess.get_os_pid(pid)
+    wrapper_script = ExternalProcess.get_wrapper_script_path(pid)
     {_, 0} = System.cmd "kill", [to_string(os_pid)]
 
     assert_receive {:DOWN, ^ref, :process, _, :crashed}
+    refute File.exists?(wrapper_script)
   end
 
   test "when unable to start a process" do
@@ -58,6 +66,8 @@ defmodule Wallaby.ExternalProcessTest do
     path = System.find_executable("doesnotexist")
 
     assert {:error, :enoent} = ExternalProcess.start_link(path)
+    # TODO: figure out how to make sure the wrapper script is deleted
+    # refute File.exists?(wrapper_script)
   end
 
   defp assert_os_process_is_running(os_pid) do
