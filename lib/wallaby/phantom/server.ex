@@ -2,6 +2,8 @@ defmodule Wallaby.Phantom.Server do
   @moduledoc false
   use GenServer
 
+  alias Wallaby.ProcessWorkspace
+
   @external_resource "priv/run_phantom.sh"
   @run_phantom_script_contents File.read! "priv/run_phantom.sh"
 
@@ -26,36 +28,47 @@ defmodule Wallaby.Phantom.Server do
   end
 
   def init(_) do
+    Process.flag(:trap_exit, true)
     port = find_available_port()
-    local_storage = tmp_local_storage()
+    {:ok, workspace_path} = ProcessWorkspace.create(self())
 
-    start_phantom(port, local_storage)
+    setup_workspace(workspace_path)
+    phantom_port = start_phantom(port, workspace_path)
 
-    {:ok, %{running: false, awaiting_url: [], base_url: "http://localhost:#{port}/", local_storage: local_storage}}
+    {:ok, %{running: false, awaiting_url: [], base_url: "http://localhost:#{port}/", workspace_path: workspace_path, port: phantom_port}}
   end
 
-  defp start_phantom(port, local_storage) do
+  defp setup_workspace(workspace_path) do
+    create_local_storage_dir(workspace_path)
+    write_wrapper_script(workspace_path)
+  end
+
+  defp create_local_storage_dir(workspace_path) do
+    workspace_path |> local_storage_path |> File.mkdir_p!
+  end
+
+  defp write_wrapper_script(workspace_path) do
+    path = wrapper_script_path(workspace_path)
+
+    File.write!(path, @run_phantom_script_contents)
+    File.chmod!(path,0o755)
+  end
+
+  defp start_phantom(port, workspace_path) do
+    phantom_args = [
+      "--webdriver=#{port}",
+      "--local-storage-path=#{local_storage_path(workspace_path)}"
+    ] ++ args(Application.get_env(:wallaby, :phantomjs_args, ""))
+
+    start_port_with_wrapper_script(workspace_path, phantomjs_path(), phantom_args)
+  end
+
+  defp start_port_with_wrapper_script(workspace_path, path_to_executable, args) do
     # Starts phantomjs using the run_phantom.sh wrapper script so phantomjs will
     # be shutdown when stdin closes and when the beam terminates unexpectedly.
-    # When running as an escript, priv/run_phantom.sh will not be present so we
-    # pipe the script contents into sh -s. Here is the basic command we are
-    # running below:
-    #
-    #   <wrapper_script_contents > | sh -s phantomjs --arg-1 --arg-2
-    #
-    port = Port.open({:spawn_executable, System.find_executable("sh")},
-            [:binary, :stream, :use_stdio, :exit_status, args: script_args(port, local_storage)])
-    Port.command(port, @run_phantom_script_contents)
-    port
-  end
-
-  def script_args(port, local_storage) do
-    [
-      "-s",
-      phantomjs_path(),
-      "--webdriver=#{port}",
-      "--local-storage-path=#{local_storage}"
-    ] ++ args(Application.get_env(:wallaby, :phantomjs_args, ""))
+    Port.open({:spawn_executable, wrapper_script_path(workspace_path)},
+            [:binary, :stream, :use_stdio, :exit_status,
+             args: [path_to_executable] ++ args])
   end
 
   defp find_available_port do
@@ -65,14 +78,12 @@ defmodule Wallaby.Phantom.Server do
     port
   end
 
-  defp tmp_local_storage do
-    dirname = 0x100000000 |> :rand.uniform |> Integer.to_string(36) |> String.downcase
+  defp local_storage_path(workspace_path) do
+    Path.join(workspace_path, "local_storage")
+  end
 
-    local_storage = Path.join(System.tmp_dir!, dirname)
-
-    File.mkdir_p(local_storage)
-
-    local_storage
+  defp wrapper_script_path(workspace_path) do
+    Path.join(workspace_path, "wrapper")
   end
 
   defp phantomjs_path do
@@ -114,16 +125,45 @@ defmodule Wallaby.Phantom.Server do
   end
 
   def handle_call(:get_local_storage_dir, _from, state) do
-    {:reply, state.local_storage, state}
+    {:reply, local_storage_path(state.workspace_path), state}
   end
 
   def handle_call(:clear_local_storage, _from, state) do
-    result = File.rm_rf(state.local_storage)
+    result = state.workspace_path |> local_storage_path |> File.rm_rf
 
     {:reply, result, state}
   end
 
-  def terminate(_reason, state) do
-    File.rm_rf(state.local_storage)
+  def terminate(_reason, %{port: port} = state) do
+    # IO.puts """
+    # terminating #{__MODULE__} #{inspect self()}
+    # #{inspect state}
+    #
+    # """
+    %{os_pid: os_pid} = port |> Port.info |> Enum.into(%{})
+    {microseconds, _} = :timer.tc fn ->
+      Port.close(port)
+      wait_for_stop(os_pid)
+    end
+
+    # IO.puts """
+    # port closed #{__MODULE__} #{inspect self()} in #{microseconds/1000} ms
+    # #{inspect state}
+    #
+    # """
+  end
+
+  defp wait_for_stop(os_pid) do
+    if os_process_running?(os_pid) do
+      Process.sleep(100)
+      wait_for_stop(os_pid)
+    end
+  end
+
+  defp os_process_running?(os_pid) do
+    case System.cmd("kill", ["-0", to_string(os_pid)], stderr_to_stdout: true) do
+      {_, 0} -> true
+      _ -> false
+    end
   end
 end

@@ -5,12 +5,6 @@ defmodule Wallaby.Phantom.ServerTest do
 
   setup do
     {:ok, server} = Server.start_link([])
-
-    local_storage = Server.get_local_storage_dir(server)
-    on_exit fn ->
-      File.rm_rf(local_storage)
-    end
-
     {:ok, %{server: server}}
   end
 
@@ -43,6 +37,7 @@ defmodule Wallaby.Phantom.ServerTest do
     assert File.exists?(local_storage)
 
     Server.stop(server)
+    Process.sleep(100)
     refute File.exists?(local_storage)
   end
 end
