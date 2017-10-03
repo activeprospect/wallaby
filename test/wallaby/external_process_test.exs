@@ -61,11 +61,26 @@ defmodule Wallaby.ExternalProcessTest do
     refute File.exists?(wrapper_script)
   end
 
-  test "when unable to start a process" do
-    Process.flag(:trap_exit, true)
+  test "when trying to start nil" do
+    # Process.flag(:trap_exit, true)
     path = System.find_executable("doesnotexist")
 
-    assert {:error, :enoent} = ExternalProcess.start_link(path)
+    ExternalProcess.start_link(path)
+
+    Process.sleep(5000)
+
+    # TODO: figure out how to make sure the wrapper script is deleted
+    # refute File.exists?(wrapper_script)
+  end
+
+  test "when unable to start a process" do
+    Process.flag(:trap_exit, true)
+    ExternalProcess.start_link("/bin/doesnotexist")
+
+    Process.sleep(5000)
+
+    assert_receive
+
     # TODO: figure out how to make sure the wrapper script is deleted
     # refute File.exists?(wrapper_script)
   end

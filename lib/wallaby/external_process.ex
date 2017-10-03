@@ -2,12 +2,8 @@ defmodule Wallaby.ExternalProcess do
   @moduledoc false
   use GenServer
 
+  alias __MODULE__.ProcessWorkspace
   alias __MODULE__.State
-
-  defstruct [:port]
-  @type t :: %__MODULE__{
-    port: nil | port
-  }
 
   @external_resource "priv/run_phantom.sh"
   @run_cmd_script_contents File.read! "priv/run_phantom.sh"
@@ -40,6 +36,8 @@ defmodule Wallaby.ExternalProcess do
     Process.flag(:trap_exit, true)
     state = State.new
 
+    {:ok, pid} = ProcessWorkspace.create(self(), state.tmp_dir)
+
     try do
       write_wrapper_script(state, wrapper_script_contents)
       wrapper_path = State.wrapper_script_path(state)
@@ -52,7 +50,7 @@ defmodule Wallaby.ExternalProcess do
         {:stop, e.original}
     else
       port ->
-        {:ok, %{state | port: port}}
+        {:ok, %{state | port: port |> IO.inspect}}
     end
   end
 
@@ -67,16 +65,10 @@ defmodule Wallaby.ExternalProcess do
   end
 
   @impl GenServer
-  def handle_info({port, {:exit_status, _}}, %__MODULE__{port: port} = state) do
+  def handle_info({port, {:exit_status, _}}, %State{port: port} = state) do
     {:stop, :crashed, state}
   end
   def handle_info(msg, state), do: super(msg, state)
-
-  @impl GenServer
-  def terminate(_reason, %State{port: port, tmp_dir: tmp_dir}) do
-    # Port.close(port)
-    File.rm_rf!(tmp_dir)
-  end
 
   defp write_wrapper_script(state, script_contents) do
     File.mkdir(state.tmp_dir)

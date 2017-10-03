@@ -31,6 +31,7 @@ defmodule Wallaby do
 
     children = [
       supervisor(driver(), [[name: Wallaby.Driver.Supervisor]]),
+      supervisor(Wallaby.ExternalProcess.ProcessWorkspace.ServerSupervisor, []),
       worker(Wallaby.SessionStore, []),
     ]
 
