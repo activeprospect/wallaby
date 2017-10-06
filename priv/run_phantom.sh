@@ -56,7 +56,7 @@ trap 'remove_pipe "$pid_pipe"' EXIT
 (
   "$@" &
   echo $! >> $pid_pipe
-  wait
+  wait 2>/dev/null
   kill $my_pid
 ) &
 read program_pid < "$pid_pipe"

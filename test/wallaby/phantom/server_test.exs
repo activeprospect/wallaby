@@ -40,4 +40,10 @@ defmodule Wallaby.Phantom.ServerTest do
     Process.sleep(100)
     refute File.exists?(local_storage)
   end
+
+  test "crashes when wrapper script is killed"
+
+  test "crashes when phantom is killed"
+
+  test "shuts down wrapper script and phantom when this process is stopped"
 end

@@ -67,7 +67,7 @@ defmodule Wallaby.Phantom.Server do
     # Starts phantomjs using the run_phantom.sh wrapper script so phantomjs will
     # be shutdown when stdin closes and when the beam terminates unexpectedly.
     Port.open({:spawn_executable, wrapper_script_path(workspace_path)},
-            [:binary, :stream, :use_stdio, :exit_status,
+            [:binary, :stream, :use_stdio, :exit_status, :stderr_to_stdout,
              args: [path_to_executable] ++ args])
   end
 
