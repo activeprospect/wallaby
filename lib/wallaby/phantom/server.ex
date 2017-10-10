@@ -7,6 +7,19 @@ defmodule Wallaby.Phantom.Server do
   @external_resource "priv/run_phantom.sh"
   @run_phantom_script_contents File.read! "priv/run_phantom.sh"
 
+  defmodule State do
+    @moduledoc false
+
+    @type t :: %__MODULE__{
+      running: boolean,
+      awaiting_url: [pid],
+      base_url: String.t,
+      workspace_path: String.t,
+      port: port,
+    }
+    defstruct [:base_url, :workspace_path, :port, running: false, awaiting_url: []]
+  end
+
   def start_link(_args) do
     GenServer.start_link(__MODULE__, [])
   end
@@ -27,8 +40,12 @@ defmodule Wallaby.Phantom.Server do
     GenServer.call(server, :clear_local_storage, :infinity)
   end
 
+  @spec get_wrapper_os_pid(pid) :: non_neg_integer
+  def get_wrapper_os_pid(server) do
+    GenServer.call(server, :get_wrapper_os_pid)
+  end
+
   def init(_) do
-    Process.flag(:trap_exit, true)
     port = find_available_port()
     {:ok, workspace_path} = ProcessWorkspace.create(self())
 
@@ -115,10 +132,10 @@ defmodule Wallaby.Phantom.Server do
     {:noreply, state}
   end
 
-  def handle_call(:get_base_url, from, %{running: false} = state) do
-    awaiting_url = [from|state.awaiting_url]
-    {:noreply, %{state | awaiting_url: awaiting_url}}
-  end
+  # def handle_call(:get_base_url, from, %{running: false} = state) do
+  #   awaiting_url = [from|state.awaiting_url]
+  #   {:noreply, %{state | awaiting_url: awaiting_url}}
+  # end
 
   def handle_call(:get_base_url, _from, state) do
     {:reply, state.base_url, state}
@@ -134,23 +151,14 @@ defmodule Wallaby.Phantom.Server do
     {:reply, result, state}
   end
 
-  def terminate(_reason, %{port: port} = state) do
-    # IO.puts """
-    # terminating #{__MODULE__} #{inspect self()}
-    # #{inspect state}
-    #
-    # """
-    %{os_pid: os_pid} = port |> Port.info |> Enum.into(%{})
-    {microseconds, _} = :timer.tc fn ->
-      Port.close(port)
-      wait_for_stop(os_pid)
-    end
+  def handle_call(:get_wrapper_os_pid, _from, %{port: port} = state) do
+    {:reply, os_pid_from_port(port), state}
+  end
 
-    # IO.puts """
-    # port closed #{__MODULE__} #{inspect self()} in #{microseconds/1000} ms
-    # #{inspect state}
-    #
-    # """
+  def terminate(reason, %{port: port}) do
+    os_pid = os_pid_from_port(port)
+    Port.close(port)
+    wait_for_stop(os_pid)
   end
 
   defp wait_for_stop(os_pid) do
@@ -165,5 +173,10 @@ defmodule Wallaby.Phantom.Server do
       {_, 0} -> true
       _ -> false
     end
+  end
+
+  defp os_pid_from_port(port) do
+    %{os_pid: os_pid} = port |> Port.info |> Enum.into(%{})
+    os_pid
   end
 end
